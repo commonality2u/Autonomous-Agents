@@ -1,0 +1,94 @@
+name: Extract Code Links
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Run daily at midnight UTC
+  push:
+    paths:
+      - 'README.md'
+  workflow_dispatch:  # Add this trigger to enable manual triggering
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Extract and save code links
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          import re
+          import requests
+          from bs4 import BeautifulSoup
+          from github import Github
+
+          # Your GitHub token
+          g = Github(GITHUB_TOKEN)
+          repo = g.get_repo("commonality2u/Autonomous-Agents")
+
+          def update_file(repo, path, message, content, branch="main"):
+              contents = repo.get_contents(path, ref=branch)
+              sha = contents.sha
+              repo.update_file(path, message, content, sha, branch=branch)
+
+          def create_file(repo, path, message, content, branch="main"):
+              repo.create_file(path, message, content, branch=branch)
+
+          def extract_code_links(readme_content):
+              arxiv_links = re.findall(r'https:\/\/arxiv\.org\/[^\s)]+', readme_content)
+              code_links = set()
+
+              for arxiv_link in arxiv_links:
+                  try:
+                      response = requests.get(arxiv_link)
+                      response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                      soup = BeautifulSoup(response.content, 'html.parser')
+                      for a in soup.find_all('a', href=True):
+                          href = a['href']
+                          if any(keyword in href.lower() for keyword in ["github.com", "gitlab.com", "code", "repository", "project"]):
+                              code_links.add(href)
+                  except requests.exceptions.RequestException as e:
+                      print(f"Error fetching {arxiv_link}: {e}")
+
+              return list(code_links)
+
+          # Get the README content
+          try:
+              readme = repo.get_readme()
+              readme_content = readme.decoded_content.decode('utf-8')
+          except Exception as e:
+              print(f"Error getting README: {e}")
+              exit()
+
+          # Extract code links
+          extracted_links = extract_code_links(readme_content)
+
+          # Prepare content for the code_links.txt file
+          content = "\n".join(extracted_links) + "\n"
+
+          file_path = "code_links.txt"
+          file_message = "Update code links"
+
+          try:
+              # Check if the file exists
+              try:
+                  repo.get_contents(file_path, ref="main")
+                  update_file(repo, file_path, file_message, content)
+              except Exception as e:
+                  create_file(repo, file_path, file_message, content)
+              print(f"Successfully updated {file_path}")
+
+          except Exception as e:
+              print(f"Error updating {file_path}: {e}")
