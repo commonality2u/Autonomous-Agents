@@ -1,1 +1,1 @@
-![Visitor Count](https://img.shields.io/badge/Visitors-566-brightgreen)
+![Visitor Count](https://img.shields.io/badge/Visitors-567-brightgreen)
